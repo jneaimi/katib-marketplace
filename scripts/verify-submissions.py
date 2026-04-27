@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 """Verify changed `.katib-pack` submissions in a PR.
 
-Reads paths from CHANGED_FILES env var (newline-separated, set by the
+Reads paths from the CHANGED_FILES env var (newline-separated, set by the
 GitHub Action). For each `submissions/**/*.katib-pack`, runs `katib verify`
-against it and posts a summary on stdout (the workflow renders this as a
-PR comment).
+against it and prints a summary on stdout (the workflow renders this as a
+sticky PR comment).
 
 Exits non-zero if any pack fails verification — fails the PR check.
+
+When no packs changed (e.g. a docs- or workflow-only PR landed in this
+file's path filter), the script exits 0 with a no-op message.
 """
 from __future__ import annotations
 
