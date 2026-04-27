@@ -58,11 +58,9 @@ def pack_metadata(pack_path: Path) -> dict:
         return yaml.safe_load(f.read())  # type: ignore[union-attr]
 
 
-def upload_to_r2(pack_path: Path, key: str) -> str:
+def _r2_client():
     account_id = os.environ["R2_ACCOUNT_ID"]
-    bucket = os.environ["R2_BUCKET_NAME"]
-
-    s3 = boto3.client(
+    return boto3.client(
         "s3",
         endpoint_url=f"https://{account_id}.r2.cloudflarestorage.com",
         aws_access_key_id=os.environ["R2_ACCESS_KEY_ID"],
@@ -71,7 +69,10 @@ def upload_to_r2(pack_path: Path, key: str) -> str:
         region_name="auto",
     )
 
-    s3.upload_file(
+
+def upload_to_r2(pack_path: Path, key: str) -> str:
+    bucket = os.environ["R2_BUCKET_NAME"]
+    _r2_client().upload_file(
         str(pack_path),
         bucket,
         key,
@@ -79,6 +80,29 @@ def upload_to_r2(pack_path: Path, key: str) -> str:
             "ContentType": "application/gzip",
             "CacheControl": "public, max-age=31536000, immutable",
         },
+    )
+    return f"https://packs.jneaimi.com/{key}"
+
+
+def upload_preview_html(pack_path: Path, inner_path: str, key: str) -> str:
+    """Extract one preview file from the .katib-pack and upload to R2.
+
+    The R2 object is content-addressed by version — preview files are
+    immutable per (author/name/version), same cache rules as the pack
+    itself. Returns the public URL the registry will serve.
+    """
+    bucket = os.environ["R2_BUCKET_NAME"]
+    with tarfile.open(pack_path, "r:gz") as tf:
+        member = next((m for m in tf.getmembers() if m.name == inner_path), None)
+        if member is None:
+            raise FileNotFoundError(f"{pack_path}: no member {inner_path!r}")
+        body = tf.extractfile(member).read()  # type: ignore[union-attr]
+    _r2_client().put_object(
+        Bucket=bucket,
+        Key=key,
+        Body=body,
+        ContentType="text/html; charset=utf-8",
+        CacheControl="public, max-age=31536000, immutable",
     )
     return f"https://packs.jneaimi.com/{key}"
 
@@ -120,6 +144,27 @@ def main() -> int:
         print(f"📤 uploading {pack} → r2://{key}")
         download_url = upload_to_r2(pack, key)
 
+        # Slice B — surface captured HTML previews. The pack ships them under
+        # `previews/<artifact>.<lang>.html`; we mirror each one to R2 and tell
+        # the registry where to find them.
+        marketplace = meta.get("marketplace") or {}
+        preview_payload: list[dict] = []
+        for entry in marketplace.get("previews") or []:
+            inner_path = entry["path"]              # e.g. previews/tutorial.en.html
+            base = inner_path.split("/", 1)[1]      # tutorial.en.html
+            preview_key = (
+                f"previews/{parsed['author']}/{parsed['name']}/"
+                f"{parsed['version']}/{base}"
+            )
+            print(f"📤 preview {inner_path} → r2://{preview_key}")
+            preview_url = upload_preview_html(pack, inner_path, preview_key)
+            row: dict = {"lang": entry["lang"], "url": preview_url}
+            if entry.get("recipe"):
+                row["recipe"] = entry["recipe"]
+            elif entry.get("component"):
+                row["component"] = entry["component"]
+            preview_payload.append(row)
+
         payload = {
             "author": parsed["author"],
             "name": parsed["name"],
@@ -133,13 +178,15 @@ def main() -> int:
             "domain": meta.get("domain"),
             "description": meta.get("description"),
             "license": meta.get("license"),
-            "documentation_url": meta.get("marketplace", {}).get("documentation_url"),
-            "preview_image_url": meta.get("marketplace", {}).get("preview_image"),
+            "documentation_url": marketplace.get("documentation_url"),
+            "preview_image_url": marketplace.get("preview_image"),
             "download_url": download_url,
             "size_bytes": size,
             # Slice A — discovery metadata. The admin endpoint computes
             # `kind` server-side from this; we never send `kind` directly.
             "contents": meta.get("contents", {}),
+            # Slice B — captured HTML previews, content-addressed per version.
+            "previews": preview_payload,
         }
 
         print(f"📡 POST {os.environ.get('REGISTRY_API')}/admin/packs")
