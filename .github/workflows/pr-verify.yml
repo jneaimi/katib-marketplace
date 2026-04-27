@@ -1,0 +1,58 @@
+name: pr-verify
+
+on:
+  pull_request:
+    paths:
+      - "submissions/**/*.katib-pack"
+      - "scripts/verify-submissions.py"
+      - ".github/workflows/pr-verify.yml"
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect changed packs
+        id: changed
+        run: |
+          set -euo pipefail
+          base="${{ github.event.pull_request.base.sha }}"
+          head="${{ github.event.pull_request.head.sha }}"
+          files=$(git diff --name-only --diff-filter=AM "$base" "$head" -- 'submissions/**/*.katib-pack' || true)
+          {
+            echo "files<<EOF"
+            echo "$files"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Install marketplace deps
+        run: uv sync || uv pip install pyyaml
+
+      - name: Verify submissions
+        id: verify
+        env:
+          CHANGED_FILES: ${{ steps.changed.outputs.files }}
+        run: |
+          uv run --with pyyaml python scripts/verify-submissions.py | tee verify-report.md
+        continue-on-error: false
+
+      - name: Comment on PR
+        if: always()
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: katib-pack-verify
+          path: verify-report.md

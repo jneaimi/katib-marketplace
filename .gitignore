@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.uv/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/
+.idea/
+*.swp
+
+# Local secrets / env (CI uses GitHub Actions secrets — never commit any of these)
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
