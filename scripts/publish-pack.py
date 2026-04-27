@@ -137,6 +137,9 @@ def main() -> int:
             "preview_image_url": meta.get("marketplace", {}).get("preview_image"),
             "download_url": download_url,
             "size_bytes": size,
+            # Slice A — discovery metadata. The admin endpoint computes
+            # `kind` server-side from this; we never send `kind` directly.
+            "contents": meta.get("contents", {}),
         }
 
         print(f"📡 POST {os.environ.get('REGISTRY_API')}/admin/packs")
