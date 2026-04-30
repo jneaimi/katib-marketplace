@@ -84,12 +84,27 @@ def upload_to_r2(pack_path: Path, key: str) -> str:
     return f"https://packs.jneaimi.com/{key}"
 
 
-def upload_preview_html(pack_path: Path, inner_path: str, key: str) -> str:
+_PREVIEW_CONTENT_TYPES = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".webp": "image/webp",
+    ".html": "text/html; charset=utf-8",
+}
+
+
+def _content_type_for_preview(inner_path: str) -> str:
+    ext = Path(inner_path).suffix.lower()
+    return _PREVIEW_CONTENT_TYPES.get(ext, "application/octet-stream")
+
+
+def upload_preview_asset(pack_path: Path, inner_path: str, key: str) -> str:
     """Extract one preview file from the .katib-pack and upload to R2.
 
-    The R2 object is content-addressed by version — preview files are
-    immutable per (author/name/version), same cache rules as the pack
-    itself. Returns the public URL the registry will serve.
+    Picks `Content-Type` from the file extension — `.png` for the v2
+    raster previews, `.html` for legacy iframe previews. R2 objects are
+    content-addressed by version (immutable per author/name/version),
+    same long cache as the pack itself. Returns the public URL.
     """
     bucket = os.environ["R2_BUCKET_NAME"]
     with tarfile.open(pack_path, "r:gz") as tf:
@@ -101,7 +116,7 @@ def upload_preview_html(pack_path: Path, inner_path: str, key: str) -> str:
         Bucket=bucket,
         Key=key,
         Body=body,
-        ContentType="text/html; charset=utf-8",
+        ContentType=_content_type_for_preview(inner_path),
         CacheControl="public, max-age=31536000, immutable",
     )
     return f"https://packs.jneaimi.com/{key}"
@@ -144,21 +159,24 @@ def main() -> int:
         print(f"📤 uploading {pack} → r2://{key}")
         download_url = upload_to_r2(pack, key)
 
-        # Slice B — surface captured HTML previews. The pack ships them under
-        # `previews/<artifact>.<lang>.html`; we mirror each one to R2 and tell
-        # the registry where to find them.
+        # Slice B — surface captured previews. v1 shipped HTML iframes
+        # (`<name>.<lang>.html`); v2 ships PNG page rasters
+        # (`<name>.<lang>.pageN.png`). Both extensions are uploaded
+        # via the same path with content-type chosen from the suffix.
         marketplace = meta.get("marketplace") or {}
         preview_payload: list[dict] = []
         for entry in marketplace.get("previews") or []:
-            inner_path = entry["path"]              # e.g. previews/tutorial.en.html
-            base = inner_path.split("/", 1)[1]      # tutorial.en.html
+            inner_path = entry["path"]              # e.g. previews/tutorial.en.page1.png
+            base = inner_path.split("/", 1)[1]      # tutorial.en.page1.png
             preview_key = (
                 f"previews/{parsed['author']}/{parsed['name']}/"
                 f"{parsed['version']}/{base}"
             )
             print(f"📤 preview {inner_path} → r2://{preview_key}")
-            preview_url = upload_preview_html(pack, inner_path, preview_key)
+            preview_url = upload_preview_asset(pack, inner_path, preview_key)
             row: dict = {"lang": entry["lang"], "url": preview_url}
+            if entry.get("page"):
+                row["page"] = entry["page"]
             if entry.get("recipe"):
                 row["recipe"] = entry["recipe"]
             elif entry.get("component"):
