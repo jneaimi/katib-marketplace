@@ -1,0 +1,21 @@
+# Whitelist of R2 object keys to delete via scripts/sweep-orphans.py.
+#
+# Each entry is an exact key in the R2 bucket named by $R2_BUCKET_NAME.
+# The sweep script refuses to run if this list is empty or contains a
+# wildcard character (`*` or `?`). This file is the ONLY input — the
+# script does NOT enumerate the bucket.
+#
+# Origin: PR #88 publish-on-merge run (see commit 3ca0dcb). The R2
+# uploads succeeded but the registry POST returned `400 unknown domain`,
+# leaving these objects orphaned. PR #89 re-published with corrected
+# slugs, so the rows + blobs below are dead weight that should be
+# removed from the bucket.
+
+- jneaimi/industry-trial-case-study/0.1.0.katib-pack
+- jneaimi/executive-briefing-deck/0.1.0.katib-pack
+- previews/jneaimi/industry-trial-case-study/0.1.0/industry-trial-case-study.en.page1.png
+- previews/jneaimi/industry-trial-case-study/0.1.0/industry-trial-case-study.en.page2.png
+- previews/jneaimi/industry-trial-case-study/0.1.0/industry-trial-case-study.en.page3.png
+- previews/jneaimi/executive-briefing-deck/0.1.0/executive-briefing-deck.en.page1.png
+- previews/jneaimi/executive-briefing-deck/0.1.0/executive-briefing-deck.en.page2.png
+- previews/jneaimi/executive-briefing-deck/0.1.0/executive-briefing-deck.en.page3.png
